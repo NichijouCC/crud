@@ -1,0 +1,72 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "生成(SQLC+SQLX)",
+            "type": "shell",
+            "command": "sqlc generate; if ($?) { go run cmd/generate.go }",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "never"
+            },
+            "problemMatcher": [],
+            "icon": {
+                "id": "symbol-misc"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "生成 SQLC 代码",
+            "type": "shell",
+            "command": "sqlc generate",
+            "group": "build",
+            "presentation": {
+                "reveal": "never"
+            },
+            "problemMatcher": [],
+            "icon": {
+                "id": "symbol-database"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "生成 SQLX 代码",
+            "type": "shell",
+            "command": "go run cmd/generate.go",
+            "group": "build",
+            "presentation": {
+                "reveal": "never"
+            },
+            "problemMatcher": [],
+            "icon": {
+                "id": "symbol-class"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "清理生成文件",
+            "type": "shell",
+            "command": "del /s /q db\\sqlc\\*.go db\\sqlx\\*.go",
+            "group": "build",
+            "presentation": {
+                "reveal": "never"
+            },
+            "problemMatcher": [],
+            "icon": {
+                "id": "symbol-trash"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        }
+    ]
+}
