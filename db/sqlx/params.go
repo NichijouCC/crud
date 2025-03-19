@@ -7,26 +7,17 @@ import (
 	"strings"
 )
 
-type Pagination struct {
-	Page     int32 `json:"page" query:"page"`           // 页码，从1开始
-	PageSize int32 `json:"page_size" query:"page_size"` // 每页数量
+// QueryFilter 包含分页、排序和过滤条件
+type QueryFilter struct {
+	Conditions []*QueryCondition // 过滤条件列表
+	Limit      int               // 限制返回的记录数
+	Offset     int               // 偏移量
+	SortField  string            // 排序字段名
+	SortOrder  string            // 排序方式(ASC/DESC)
 }
 
-// Sort 定义排序规则
-type Sort struct {
-	Field string `json:"field" query:"field"` // 排序字段名
-	Order string `json:"order" query:"order"` // 排序方式(ASC/DESC)
-}
-
-// Filter 包含分页、排序和过滤条件
-type Filter struct {
-	Pagination *Pagination  // 分页信息
-	Sort       *Sort        // 排序规则
-	Conditions []*Condition // 过滤条件列表
-}
-
-// Condition 定义单个过滤条件
-type Condition struct {
+// QueryCondition 定义单个过滤条件
+type QueryCondition struct {
 	Field    string      // 字段名
 	Value    interface{} // 字段值
 	Operator string      // 操作符(=,>,>=,<,<=,LIKE等)
@@ -43,7 +34,7 @@ var operatorMap = map[string]string{
 	"like": "LIKE",
 }
 
-// ParseConditionFromQuery 从URL查询参数解析过滤条件
+// ParseQueryConditionFromUrlParam 从URL查询参数解析过滤条件
 // 支持的格式:
 // field_gt=value -> field > value
 // field_gte=value -> field >= value
@@ -51,7 +42,7 @@ var operatorMap = map[string]string{
 // field_lte=value -> field <= value
 // field_like=value -> field LIKE value
 // field=value -> field = value
-func ParseConditionFromQuery(field string, value string) (*Condition, error) {
+func ParseQueryConditionFromUrlParam(field string, value string) (*QueryCondition, error) {
 	// 检查参数
 	if field == "" || value == "" {
 		return nil, errors.New("field and value cannot be empty")
@@ -62,7 +53,7 @@ func ParseConditionFromQuery(field string, value string) (*Condition, error) {
 	}
 	parts := strings.Split(field, "_")
 	if len(parts) == 1 {
-		return &Condition{
+		return &QueryCondition{
 			Field:    field,
 			Value:    value,
 			Operator: "=",
@@ -89,16 +80,16 @@ func ParseConditionFromQuery(field string, value string) (*Condition, error) {
 		}
 	}
 
-	return &Condition{
+	return &QueryCondition{
 		Field:    fieldName,
 		Value:    value,
 		Operator: operator,
 	}, nil
 }
 
-// ParseConditionsFromQuery 从URL查询参数解析出查询条件
-func ParseConditionsFromQuery(query map[string][]string) ([]*Condition, error) {
-	var conditions []*Condition
+// ParseQueryConditionsFromUrlParams 从URL查询参数解析出查询条件
+func ParseQueryConditionsFromUrlParams(query map[string][]string) ([]*QueryCondition, error) {
+	var conditions []*QueryCondition
 	for field, values := range query {
 		// 跳过空值
 		if len(values) == 0 || values[0] == "" {
@@ -106,7 +97,7 @@ func ParseConditionsFromQuery(query map[string][]string) ([]*Condition, error) {
 		}
 		// 只取第一个值
 		value := values[0]
-		condition, err := ParseConditionFromQuery(field, value)
+		condition, err := ParseQueryConditionFromUrlParam(field, value)
 		if err != nil {
 			return nil, fmt.Errorf("解析条件失败 %s: %v", field, err)
 		}
@@ -115,58 +106,131 @@ func ParseConditionsFromQuery(query map[string][]string) ([]*Condition, error) {
 	return conditions, nil
 }
 
-// ParseFilterFromContext 从echo.Context解析出Filter
-func ParseFilterFromContext(params map[string][]string) (*Filter, error) {
-	// 获取所有查询参数
-	// 解析查询条件
-	conditions, err := ParseConditionsFromQuery(params)
+// ParseQueryFilterFromUrlParams 从echo.Context解析出Filter
+func ParseQueryFilterFromUrlParams(params map[string][]string) (*QueryFilter, error) {
+	conditions, err := ParseQueryConditionsFromUrlParams(params)
 	if err != nil {
 		return nil, err
 	}
 
 	// 解析分页参数
-	var pagination *Pagination
-	var page, pageSize int32 = 1, 10 // 默认值
+	var limit, offset int = 0, 0
+
 	if pageValues, ok := params["page"]; ok && len(pageValues) > 0 {
 		if p, err := strconv.ParseInt(pageValues[0], 10, 32); err == nil && p > 0 {
-			page = int32(p)
-			pagination = &Pagination{
-				Page:     page,
-				PageSize: pageSize,
-			}
-		}
-	}
-	if sizeValues, ok := params["page_size"]; ok && len(sizeValues) > 0 {
-		if s, err := strconv.ParseInt(sizeValues[0], 10, 32); err == nil && s > 0 {
-			pageSize = int32(s)
-			if pagination == nil {
-				pagination = &Pagination{
-					Page:     page,
-					PageSize: pageSize,
+			page := int32(p)
+			var pageSize int32 = 10 // 默认值
+			if sizeValues, ok := params["page_size"]; ok && len(sizeValues) > 0 {
+				if s, err := strconv.ParseInt(sizeValues[0], 10, 32); err == nil && s > 0 {
+					pageSize = int32(s)
 				}
 			}
+			limit = int(pageSize)
+			offset = int((page - 1) * pageSize)
 		}
 	}
+
 	// 解析排序
-	var sort *Sort
+	var sortField, sortOrder string = "", ""
 	if fieldValues, ok := params["sort_field"]; ok && len(fieldValues) > 0 {
-		sort = &Sort{
-			Field: fieldValues[0],
-			Order: "ASC", // 默认升序
-		}
+		sortField = fieldValues[0]
+		sortOrder = "ASC"
 		if orderValues, ok := params["sort_order"]; ok && len(orderValues) > 0 {
 			if strings.ToUpper(orderValues[0]) == "DESC" {
-				sort.Order = "DESC"
+				sortOrder = "DESC"
 			}
 		}
 	}
 
-	if len(conditions) != 0 || pagination != nil || sort != nil {
-		return &Filter{
+	if len(conditions) != 0 || limit != 0 || offset != 0 || sortField != "" || sortOrder != "" {
+		return &QueryFilter{
 			Conditions: conditions,
-			Pagination: pagination,
-			Sort:       sort,
+			Limit:      limit,
+			Offset:     offset,
+			SortField:  sortField,
+			SortOrder:  sortOrder,
 		}, nil
 	}
 	return nil, nil
+}
+
+// 在查询参数中标记需要的字段
+const RequiredFieldsKey = "atts_require"
+
+// 在查询参数中标记省略的字段
+const OmittedFieldsKey = "atts_omit"
+
+// FieldFilter 结构体用于存储需要和省略的字段
+type FieldFilter struct {
+	RequiredFields []string // 需要的字段列表
+	OmittedFields  []string // 省略的字段列表
+}
+
+// ParseFieldFilterFromQuery 从查询参数中解析出 FieldFilter
+func ParseFieldFilterFromQuery(params map[string][]string) (*FieldFilter, bool) {
+	for key, values := range params {
+		if key == RequiredFieldsKey {
+			fieldFilter := &FieldFilter{}
+			// 解析需要的字段
+			for _, value := range values {
+				fieldFilter.RequiredFields = append(fieldFilter.RequiredFields, strings.Split(value, ",")...)
+			}
+			return fieldFilter, true
+		}
+		if key == OmittedFieldsKey {
+			fieldFilter := &FieldFilter{}
+			// 解析省略的字段
+			for _, value := range values {
+				fieldFilter.OmittedFields = append(fieldFilter.OmittedFields, strings.Split(value, ",")...)
+			}
+			return fieldFilter, true
+		}
+	}
+	return nil, false
+}
+
+func BuildSelectWithFieldFilter(table ITable, fieldFilter *FieldFilter) (string, []interface{}, error) {
+	allowedFields := table.ColumnsMap()
+	var selectedFields []string
+
+	// 过滤需要的字段
+	if fieldFilter != nil {
+		if len(fieldFilter.RequiredFields) > 0 {
+			for _, field := range fieldFilter.RequiredFields {
+				if _, ok := allowedFields[field]; ok {
+					selectedFields = append(selectedFields, field)
+				}
+			}
+		} else {
+			for field := range allowedFields {
+				selectedFields = append(selectedFields, field)
+			}
+		}
+
+		// 过滤省略的字段
+		if len(fieldFilter.OmittedFields) > 0 {
+			var filteredFields []string
+			omitMap := make(map[string]struct{})
+			for _, field := range fieldFilter.OmittedFields {
+				omitMap[field] = struct{}{}
+			}
+			for _, field := range selectedFields {
+				if _, ok := omitMap[field]; !ok {
+					filteredFields = append(filteredFields, field)
+				}
+			}
+			selectedFields = filteredFields
+		}
+	} else {
+		for field := range allowedFields {
+			selectedFields = append(selectedFields, field)
+		}
+	}
+
+	if len(selectedFields) == 0 {
+		return "", nil, fmt.Errorf("no valid fields selected")
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM `%s`", strings.Join(selectedFields, ", "), table.TableName())
+	return query, nil, nil
 }

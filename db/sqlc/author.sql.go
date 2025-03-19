@@ -3,7 +3,7 @@
 //   sqlc v1.28.0
 // source: author.sql
 
-package db
+package sqlc
 
 import (
 	"context"
@@ -69,6 +69,55 @@ func (q *Queries) GetAuthor(ctx context.Context, id int64) (Author, error) {
 	var i Author
 	err := row.Scan(&i.ID, &i.Name, &i.Bio)
 	return i, err
+}
+
+const GetAuthorWithBooks = `-- name: GetAuthorWithBooks :many
+SELECT 
+    a.id as author_id,
+    a.name as author_name,
+    a.bio as author_bio,
+    b.id as book_id,
+    b.title as book_title
+FROM authors a
+LEFT JOIN books b ON a.id = b.author_id
+WHERE a.id = ?
+`
+
+type GetAuthorWithBooksRow struct {
+	AuthorID   int64          `db:"author_id" json:"author_id"`
+	AuthorName string         `db:"author_name" json:"author_name"`
+	AuthorBio  sql.NullString `db:"author_bio" json:"author_bio"`
+	BookID     sql.NullInt64  `db:"book_id" json:"book_id"`
+	BookTitle  sql.NullString `db:"book_title" json:"book_title"`
+}
+
+func (q *Queries) GetAuthorWithBooks(ctx context.Context, id int64) ([]GetAuthorWithBooksRow, error) {
+	rows, err := q.db.QueryContext(ctx, GetAuthorWithBooks, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetAuthorWithBooksRow{}
+	for rows.Next() {
+		var i GetAuthorWithBooksRow
+		if err := rows.Scan(
+			&i.AuthorID,
+			&i.AuthorName,
+			&i.AuthorBio,
+			&i.BookID,
+			&i.BookTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const ListAuthors = `-- name: ListAuthors :many

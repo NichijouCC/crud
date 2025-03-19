@@ -34,3 +34,14 @@ UPDATE authors
 SET name = ?, bio = ?
 WHERE id = ?;
 
+-- name: GetAuthorWithBooks :many
+SELECT 
+    a.id as author_id,
+    a.name as author_name,
+    a.bio as author_bio,
+    b.id as book_id,
+    b.title as book_title
+FROM authors a
+LEFT JOIN books b ON a.id = b.author_id
+WHERE a.id = ?;
+

@@ -28,7 +28,7 @@ func main() {
 	e.Use(middleware.ErrorHandler()) // 错误处理中间件
 
 	// 注册路由
-	handler.RegisterAuthorRoutes(e, db)
+	handler.RegisterRoutes(e, db)
 
 	// 启动服务器
 	e.Logger.Fatal(e.Start(":8080"))

@@ -5,7 +5,7 @@ sql:
   engine: "mysql"
   gen:
     go:
-      package: "db"
+      package: "sqlc"
       out: "db/sqlc"
       sql_package: "database/sql"
       sql_driver: "github.com/go-sql-driver/mysql"

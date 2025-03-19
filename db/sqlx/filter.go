@@ -13,7 +13,7 @@ var (
 )
 
 // CreateQuerySqlWithFilter 创建查询SQL语句
-func CreateQuerySqlWithFilter(table ITable, filter *Filter) (string, []interface{}, error) {
+func CreateQuerySqlWithFilter(table ITable, filter *QueryFilter) (string, []interface{}, error) {
 	query := buildBaseSelect(table.TableName())
 	if filter == nil {
 		return query, nil, nil
@@ -22,19 +22,19 @@ func CreateQuerySqlWithFilter(table ITable, filter *Filter) (string, []interface
 }
 
 // CreateUpdateSqlWithFilter 创建更新SQL语句
-func CreateUpdateSqlWithFilter(table ITable, tableUpdate ITableUpdate, filter *Filter) (string, []interface{}, error) {
+func CreateUpdateSqlWithFilter(table ITable, tableUpdate ITableUpdate, filter *QueryFilter) (string, []interface{}, error) {
 	query, args, err := buildBaseUpdate(tableUpdate)
 	if err != nil {
 		return "", nil, err
 	}
 	if filter == nil {
-		return query, nil, nil
+		return query, args, nil // 修复: 返回args而不是nil
 	}
 	return combineConditions(table, query, args, filter)
 }
 
 // CreateDeleteSqlWithFilter 创建删除SQL语句
-func CreateDeleteSqlWithFilter(table ITable, filter *Filter) (string, []interface{}, error) {
+func CreateDeleteSqlWithFilter(table ITable, filter *QueryFilter) (string, []interface{}, error) {
 	query := buildBaseDelete(table.TableName())
 	if filter == nil {
 		return query, nil, nil
@@ -42,7 +42,11 @@ func CreateDeleteSqlWithFilter(table ITable, filter *Filter) (string, []interfac
 	return combineConditions(table, query, nil, filter)
 }
 
-func combineConditions(table ITable, query string, args []interface{}, filter *Filter) (string, []interface{}, error) {
+func combineConditions(table ITable, query string, args []interface{}, filter *QueryFilter) (string, []interface{}, error) {
+	if args == nil {
+		args = make([]interface{}, 0) // 修复: 初始化args避免nil
+	}
+
 	var builder strings.Builder
 	builder.WriteString(query)
 
@@ -52,14 +56,17 @@ func combineConditions(table ITable, query string, args []interface{}, filter *F
 			continue
 		}
 		// 防止SQL注入,验证字段名是否在白名单中
-		if _, ok := table.GetAllowedFieldsForFilter()[condition.Field]; !ok {
+		if _, ok := table.ColumnsMap()[condition.Field]; !ok {
 			return "", nil, ErrInvalidField
 		}
 		// 添加字段名长度限制
-		if len(condition.Field) > 64 {
-			return "", nil, errors.New("field name too long")
+		if len(condition.Field) == 0 || len(condition.Field) > 64 { // 修复: 检查空字段名
+			return "", nil, errors.New("invalid field name length")
 		}
 		// 验证操作符
+		if condition.Operator == "" { // 修复: 检查空操作符
+			return "", nil, ErrInvalidOperator
+		}
 		upperOperator := strings.ToUpper(condition.Operator)
 		if !allowedOperators[upperOperator] {
 			return "", nil, ErrInvalidOperator
@@ -68,6 +75,9 @@ func combineConditions(table ITable, query string, args []interface{}, filter *F
 
 		// 验证 LIKE 操作符的值
 		if condition.Operator == "LIKE" {
+			if condition.Value == nil { // 修复: 检查nil值
+				return "", nil, ErrInvalidLikeType
+			}
 			if strValue, ok := condition.Value.(string); ok {
 				// 更严格的字符检查
 				if strings.ContainsAny(strValue, "%_\\'\"`;") || len(strValue) > 100 {
@@ -100,37 +110,31 @@ func combineConditions(table ITable, query string, args []interface{}, filter *F
 	}
 
 	// 验证排序参数
-	if filter.Sort != nil {
+	if filter.SortField != "" {
 		// 防止SQL注入,验证字段名是否在白名单中
-		if _, ok := table.GetAllowedFieldsForFilter()[filter.Sort.Field]; !ok {
+		if _, ok := table.ColumnsMap()[filter.SortField]; !ok {
 			return "", nil, errors.New("invalid sort field")
 		}
+
 		// 验证排序方向
-		upperOrder := strings.ToUpper(filter.Sort.Order)
+		upperOrder := strings.ToUpper(filter.SortOrder)
 		if upperOrder != "ASC" && upperOrder != "DESC" {
 			return "", nil, errors.New("invalid sort order")
 		}
-		filter.Sort.Order = upperOrder
 
 		builder.WriteString(" ORDER BY `")
-		builder.WriteString(filter.Sort.Field)
+		builder.WriteString(filter.SortField)
 		builder.WriteString("` ")
-		builder.WriteString(filter.Sort.Order)
+		builder.WriteString(upperOrder)
 	}
 
-	// 验证分页参数
-	if filter.Pagination != nil {
-		if filter.Pagination.Page <= 0 {
-			return "", nil, errors.New("页码必须大于0")
-		}
-		if filter.Pagination.PageSize <= 0 || filter.Pagination.PageSize > 100 {
-			return "", nil, errors.New("每页数量必须在1-100之间")
-		}
-
-		offset := (filter.Pagination.Page - 1) * filter.Pagination.PageSize
-		builder.WriteString(" LIMIT ? OFFSET ?")
-		args = append(args, filter.Pagination.PageSize, offset)
+	if filter.Limit != 0 {
+		builder.WriteString(" LIMIT ?")
+		args = append(args, filter.Limit)
 	}
-
+	if filter.Offset != 0 {
+		builder.WriteString(" OFFSET ?")
+		args = append(args, filter.Offset)
+	}
 	return builder.String(), args, nil
 }

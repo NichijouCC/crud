@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v1.28.0
 
-package db
+package sqlc
 
 import (
 	"context"
@@ -13,6 +13,7 @@ type Querier interface {
 	DeleteAuthor(ctx context.Context, id int64) error
 	DeleteAuthors(ctx context.Context, ids []int64) error
 	GetAuthor(ctx context.Context, id int64) (Author, error)
+	GetAuthorWithBooks(ctx context.Context, id int64) ([]GetAuthorWithBooksRow, error)
 	ListAuthors(ctx context.Context) ([]Author, error)
 	ListAuthorsByIds(ctx context.Context, ids []int64) ([]Author, error)
 	ListAuthorsPaginated(ctx context.Context, arg ListAuthorsPaginatedParams) ([]Author, error)
